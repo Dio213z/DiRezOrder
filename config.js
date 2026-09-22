@@ -7,7 +7,7 @@ window.DIREZ_CONFIG = {
   // false: tekan ikon ? 5 kali untuk langsung membuka admin.
   // true: tampilkan form login demo dengan email/password di bawah.
   ADMIN_REQUIRE_LOGIN: true,
-  ADMIN_EMAIL: 'direz',
+  ADMIN_EMAIL: 'direz@demo.com',
   ADMIN_PASSWORD: 'direz'
 };
 // Login ini hanya simulasi. Semua isi config.js dapat dilihat pengunjung.
