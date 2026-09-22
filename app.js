@@ -1,7 +1,6 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const config = window.DIREZ_CONFIG || {};
-const ready = /^https:\/\/.+/.test(config.SUPABASE_URL || '') && !!config.SUPABASE_ANON_KEY;
 const money = n => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(n);
 const specs = {
   identity: [['name','Nama lengkap'],['class','Kelas'],['attendance','Absen','number'],['whatsapp','Nomor WhatsApp','tel'],['sd','Asal sekolah — SD'],['smp','Asal sekolah — SMP'],['school','Asal sekolah — SMK/SMA']],
@@ -28,25 +27,47 @@ for (const [group, fields] of Object.entries(specs)) {
   }
 }
 $('#year').textContent=new Date().getFullYear();
-async function api(path,{method='GET',body,auth=false}={}){
-  if(!ready)throw new Error('Pemesanan belum dibuka. Konfigurasi database belum dihubungkan.');
-  if(auth && !session)throw new Error('Silakan login kembali.');
-  if(auth && session.expires_at < Date.now()+30000){
-    const refreshed=await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token}});
-    session={...refreshed,expires_at:Date.now()+refreshed.expires_in*1000};
-  }
-  let response;
-  try{response=await fetch(config.SUPABASE_URL.replace(/\/$/,'')+path,{method,headers:{apikey:config.SUPABASE_ANON_KEY,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+session.access_token}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(45000)});}catch(e){throw new Error('Koneksi terputus. Periksa internet lalu coba lagi.');}
-  const data=await response.json().catch(()=>null);
-  if(!response.ok){
-    const raw=data?.message||data?.msg||data?.error_description||'';
-    if(/JWT|token.*expired/i.test(raw))throw new Error('Sesi berakhir. Keluar akun lalu login kembali.');
-    if(/Invalid login credentials/i.test(raw))throw new Error('Email atau password salah.');
-    throw new Error(raw||'Permintaan gagal. Coba lagi.');
-  }
-  return data;
+// Demo mandiri: satu dokumen localStorage menyimpan pengaturan dan pesanan.
+const STORAGE_KEY = 'direz-demo-v1';
+function readDemo(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(raw){const data=JSON.parse(raw);if(!data.settings||!Array.isArray(data.orders))throw new Error();return data;}
+    return {settings:{slots:Number.isInteger(config.INITIAL_SLOTS)?config.INITIAL_SLOTS:10,price:Number.isInteger(config.INITIAL_PRICE)?config.INITIAL_PRICE:30000,version:0},orders:[]};
+  }catch{throw new Error('Penyimpanan browser tidak dapat dibaca. Gunakan browser biasa dan izinkan penyimpanan situs.');}
 }
-const rpc=(name,body={},auth=false)=>api('/rest/v1/rpc/'+name,{method:'POST',body,auth});
+function saveDemo(data){
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}
+  catch{throw new Error('Penyimpanan browser penuh atau diblokir. Pesanan belum disimpan dan slot belum berkurang. Kurangi lampiran atau izinkan penyimpanan situs.');}
+}
+async function storeAction(name,body={},admin=false){
+  if(admin&&config.ADMIN_REQUIRE_LOGIN&&!session)throw new Error('Silakan login demo dahulu.');
+  const db=readDemo();
+  if(name==='settings')return {...db.settings};
+  if(name==='place_order'){
+    const existing=db.orders.find(o=>o.request_key===body.p_key);
+    if(existing)return {id:existing.id,price:existing.price};
+    if(db.settings.slots<1)throw new Error('Maaf, slot sudah habis.');
+    if(body.p_expected_price!==db.settings.price)throw new Error('Harga berubah. Periksa harga terbaru lalu kirim ulang.');
+    const order={id:crypto.randomUUID(),request_key:body.p_key,created_at:new Date().toISOString(),price:db.settings.price,status:'Baru',data:body.p_data,attachments:body.p_attachments};
+    db.orders.unshift(order);db.settings.slots--;db.settings.version++;
+    saveDemo(db);return {id:order.id,price:order.price};
+  }
+  if(name==='update_settings'){
+    if(!Number.isInteger(body.p_slots)||body.p_slots<0||body.p_slots>999||!Number.isInteger(body.p_price)||body.p_price<1000||body.p_price>10000000||body.p_price%1000)throw new Error('Slot 0–999; harga kelipatan Rp1.000 sampai Rp10.000.000.');
+    if(body.p_version!==db.settings.version)throw new Error('Slot berubah di tab lain. Periksa angka terbaru lalu simpan lagi.');
+    db.settings={slots:body.p_slots,price:body.p_price,version:db.settings.version+1};saveDemo(db);return {...db.settings};
+  }
+  if(name==='list_orders')return db.orders.slice(body.p_offset,body.p_offset+25).map(o=>({id:o.id,name:o.data.name,created_at:o.created_at,price:o.price,status:o.status}));
+  const order=db.orders.find(o=>o.id===body.p_id);
+  if(!order)throw new Error('Pesanan tidak ditemukan di browser ini.');
+  if(name==='order_detail')return order;
+  if(name==='order_status'){
+    if(!['Baru','Terkonfirmasi','Selesai'].includes(body.p_status))throw new Error('Status tidak valid.');
+    order.status=body.p_status;saveDemo(db);return;
+  }
+  throw new Error('Aksi demo tidak dikenal.');
+}
 function renderStock(){
   $('#slot-count').textContent=state.slots;
   $('#price').textContent=money(state.price);
@@ -57,7 +78,7 @@ function renderStock(){
   $('#slot-grid').replaceChildren(...Array.from({length:12},(_,i)=>node('i',undefined,i<Math.min(state.slots,12)?'':'empty')));
 }
 async function loadStock(){
-  try{state=await rpc('direz_public_settings');renderStock();$('#connection').textContent='';}
+  try{state=await storeAction('settings');renderStock();$('#connection').textContent='';}
   catch(e){$('#connection').textContent=e.message;$('#book').disabled=true;$('#availability').textContent='PEMESANAN BELUM TERSEDIA';}
 }
 $('#book').onclick=()=>{$('#success').hidden=true;$('#order-section').hidden=false;$('#order-section').scrollIntoView({behavior:'smooth'});};
@@ -76,7 +97,7 @@ $('#order-form').onsubmit=async event=>{
     const data=Object.fromEntries(new FormData(event.target));for(const k in data)data[k]=String(data[k]).trim();
     for(const [group,fields] of Object.entries(specs))if(group!=='request')for(const [key,label]of fields)if(!data[key])throw new Error(label+' wajib diisi.');
     const attachments=await Promise.all(validateFiles().map(fileData));
-    const result=await rpc('direz_place_order',{p_key:submissionKey,p_data:data,p_attachments:attachments,p_expected_price:state.price});
+    const result=await storeAction('place_order',{p_key:submissionKey,p_data:data,p_attachments:attachments,p_expected_price:state.price});
     $('#order-section').hidden=true;$('#success').hidden=false;
     $('#payment-message').textContent='Silakan bayar besok '+money(result.price)+'.';
     $('#receipt').textContent='Kode pesanan: '+result.id+' • Simpan kode ini atau screenshot halaman ini.';
@@ -86,20 +107,20 @@ $('#order-form').onsubmit=async event=>{
   finally{button.disabled=false;button.textContent='KIRIM PESANAN →';}
 };
 let taps=0,lastTap=0;
-$('#secret').onclick=()=>{const now=Date.now();taps=now-lastTap>1800?1:taps+1;lastTap=now;if(taps===5){taps=0;if(session)openAdmin();else $('#login-dialog').showModal();}};
+$('#secret').onclick=()=>{const now=Date.now();taps=now-lastTap>1800?1:taps+1;lastTap=now;if(taps===5){taps=0;if(!config.ADMIN_REQUIRE_LOGIN||session)openAdmin();else $('#login-dialog').showModal();}};
 for(const el of document.querySelectorAll('[data-close]'))el.onclick=()=>$('#'+el.dataset.close).close();
 $('#login-form').onsubmit=async event=>{
   event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';
-  try{const data=Object.fromEntries(new FormData(event.target));const result=await api('/auth/v1/token?grant_type=password',{method:'POST',body:data});session={...result,expires_at:Date.now()+result.expires_in*1000};await rpc('direz_admin_check',{},true);event.target.reset();$('#login-dialog').close();await openAdmin();}
+  try{const data=Object.fromEntries(new FormData(event.target));if(data.email!==config.ADMIN_EMAIL||data.password!==config.ADMIN_PASSWORD)throw new Error('Email atau password demo salah. Periksa config.js.');session={demo:true};event.target.reset();$('#login-dialog').close();await openAdmin();}
   catch(e){session=null;$('#login-error').textContent=e.message;}finally{button.disabled=false;}
 };
 async function openAdmin(){
   if(!$('#admin-dialog').open)$('#admin-dialog').showModal();
-  try{state=await rpc('direz_public_settings');$('#settings-form').elements.slots.value=state.slots;$('#settings-form').elements.price.value=state.price;renderStock();await loadOrders(true);}catch(e){$('#admin-message').textContent=e.message;}
+  try{state=await storeAction('settings');$('#settings-form').elements.slots.value=state.slots;$('#settings-form').elements.price.value=state.price;renderStock();await loadOrders(true);}catch(e){$('#admin-message').textContent=e.message;}
 }
 $('#settings-form').onsubmit=async event=>{
   event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;
-  try{state=await rpc('direz_update_settings',{p_slots:Number(event.target.elements.slots.value),p_price:Number(event.target.elements.price.value),p_version:state.version},true);renderStock();$('#admin-message').textContent='Slot dan harga berhasil disimpan.';}
+  try{state=await storeAction('update_settings',{p_slots:Number(event.target.elements.slots.value),p_price:Number(event.target.elements.price.value),p_version:state.version},true);renderStock();$('#admin-message').textContent='Slot dan harga berhasil disimpan.';}
   catch(e){$('#admin-message').textContent=e.message;await loadStock();event.target.elements.slots.value=state.slots;event.target.elements.price.value=state.price;}
   finally{button.disabled=false;}
 };
@@ -107,7 +128,7 @@ async function loadOrders(reset){
   if(loadingOrders)return;loadingOrders=true;$('#refresh-orders').disabled=true;$('#more-orders').disabled=true;
   try{
     const start=reset?0:offset;
-    const result=await rpc('direz_list_orders',{p_offset:start},true);
+    const result=await storeAction('list_orders',{p_offset:start},true);
     if(reset){orders=[];$('#orders').replaceChildren();}orders.push(...result);offset=start+result.length;loaded=true;
     for(const order of result){
       const row=node('article',undefined,'order-card'),info=node('div');info.append(node('h4',order.name),node('p',new Date(order.created_at).toLocaleString('id-ID')+' • '+money(order.price)),node('span',order.status,'status-pill'));
@@ -121,18 +142,21 @@ $('#refresh-orders').onclick=()=>loadOrders(true);$('#more-orders').onclick=()=>
 async function showDetail(id){
   const target=$('#order-detail');target.replaceChildren(node('p','Memuat pesanan…'));$('#detail-dialog').showModal();
   try{
-    const order=await rpc('direz_order_detail',{p_id:id},true);target.replaceChildren();
+    const order=await storeAction('order_detail',{p_id:id},true);target.replaceChildren();
     target.append(node('p',order.id+' • '+new Date(order.created_at).toLocaleString('id-ID'),'small'),node('h3',money(order.price)+' • '+order.status));
     const dl=node('dl',undefined,'detail-grid');for(const [key,title]of Object.entries(labels)){const item=node('div',undefined,'detail-item');item.append(node('dt',title),node('dd',order.data[key]||'—'));dl.append(item);}target.append(dl,node('h3','Lampiran'));
     if(!order.attachments.length)target.append(node('p','Tidak ada lampiran.','small'));
     for(const file of order.attachments){const bytes=Uint8Array.from(atob(file.data),c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:file.type}));objectURLs.push(url);const link=node('a','↓ '+file.name,'file-download');link.href=url;link.download=file.name;target.append(link);}
     const actions=node('div',undefined,'admin-actions');const wa=node('a','Hubungi via WhatsApp ↗','btn primary');const phone=order.data.whatsapp.replace(/^\+/, '').replace(/^0/,'62');wa.href='https://wa.me/'+phone;wa.target='_blank';wa.rel='noopener noreferrer';
     const select=document.createElement('select');select.setAttribute('aria-label','Status pesanan');for(const status of ['Baru','Terkonfirmasi','Selesai']){const option=node('option',status);option.value=status;select.append(option);}select.value=order.status;
-    const save=node('button','Simpan status','text-btn');const message=node('p',undefined,'small');message.setAttribute('role','status');save.onclick=async()=>{save.disabled=true;try{await rpc('direz_order_status',{p_id:id,p_status:select.value},true);message.textContent='Status tersimpan.';await loadOrders(true);}catch(e){message.textContent=e.message;}finally{save.disabled=false;}};actions.append(wa,select,save);target.append(actions,message);
+    const save=node('button','Simpan status','text-btn');const message=node('p',undefined,'small');message.setAttribute('role','status');save.onclick=async()=>{save.disabled=true;try{await storeAction('order_status',{p_id:id,p_status:select.value},true);message.textContent='Status tersimpan.';await loadOrders(true);}catch(e){message.textContent=e.message;}finally{save.disabled=false;}};actions.append(wa,select,save);target.append(actions,message);
   }catch(e){target.replaceChildren(node('p',e.message,'error'));}
 }
 $('#detail-dialog').addEventListener('close',()=>{for(const url of objectURLs)URL.revokeObjectURL(url);objectURLs.length=0;});
-$('#logout').onclick=async()=>{try{await api('/auth/v1/logout',{method:'POST',auth:true});}catch{}session=null;orders=[];$('#orders').replaceChildren();$('#order-detail').replaceChildren();$('#admin-dialog').close();};
+$('#logout').textContent=config.ADMIN_REQUIRE_LOGIN?'Keluar akun':'Tutup admin';
+$('#logout').onclick=()=>{session=null;orders=[];$('#orders').replaceChildren();$('#order-detail').replaceChildren();$('#admin-dialog').close();};
 loadStock();
 // Pembaruan publik tidak menimpa versi pengaturan ketika admin sedang mengedit.
 setInterval(()=>{if(!document.hidden&&!$('#admin-dialog').open)loadStock();},30000);
+
+window.addEventListener('storage',event=>{if(event.key===STORAGE_KEY&&!$('#admin-dialog').open)loadStock();});

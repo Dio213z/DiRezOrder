@@ -1,12 +1,13 @@
-DIREZ — MULAI DI SINI
+DIREZ DEMO — LANGSUNG JALAN
 
-1. Buka README.md untuk panduan lengkap.
-2. Buat project Supabase, jalankan setup.sql.
-3. Buat akun admin dan daftarkan UID-nya sesuai panduan.
-4. Isi URL dan PUBLIC KEY pada config.js. Jangan isi secret key!
-5. Upload ISI folder ini ke GitHub / Vercel.
+Buka index.html. Tidak perlu menghubungkan layanan apa pun.
+Admin: tekan ikon ? kanan atas 5 kali. Langsung terbuka tanpa login.
+Slot awal 10. Harga awal Rp30.000. Ubah lewat panel admin.
 
-ADMIN: tekan ikon ? kanan atas 5 kali, lalu login.
-HARGA AWAL: Rp30.000. SLOT AWAL: 10. Bisa diubah admin.
+Pengaturan ada di config.js.
+Jika ADMIN_REQUIRE_LOGIN diubah menjadi true:
+Email: admin@direz.demo
+Password: direz12345
 
-Tanpa konfigurasi Supabase, tampilan dapat dibuka tetapi pemesanan belum aktif.
+Pesanan hanya tersimpan di browser yang sama, tidak tersinkron antarperangkat.
+Panduan upload GitHub Pages dan Vercel tersedia di README.md.

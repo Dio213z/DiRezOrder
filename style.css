@@ -2,3 +2,5 @@
 
 .hero-bottom>.small{color:#d2e2ff}
 @media(prefers-reduced-motion:no-preference){.secret:hover{animation:block-jump .4s steps(4)}@keyframes block-jump{50%{transform:translateY(-6px)}}}
+
+.demo-banner{margin:0 0 16px;padding:10px 14px;border:1px solid #bdcff4;background:#e0eaff;font-size:13px;color:#18356a}
