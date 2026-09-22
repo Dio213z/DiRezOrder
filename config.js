@@ -8,6 +8,6 @@ window.DIREZ_CONFIG = {
   // true: tampilkan form login demo dengan email/password di bawah.
   ADMIN_REQUIRE_LOGIN: true,
   ADMIN_EMAIL: 'direz@demo.com',
-  ADMIN_PASSWORD: 'direz'
+  ADMIN_PASSWORD: 'direz213z'
 };
 // Login ini hanya simulasi. Semua isi config.js dapat dilihat pengunjung.
