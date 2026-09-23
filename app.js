@@ -27,47 +27,61 @@ for (const [group, fields] of Object.entries(specs)) {
   }
 }
 $('#year').textContent=new Date().getFullYear();
-// Demo mandiri: satu dokumen localStorage menyimpan pengaturan dan pesanan.
-const STORAGE_KEY = 'direz-demo-v1';
-function readDemo(){
-  try{
-    const raw=localStorage.getItem(STORAGE_KEY);
-    if(raw){const data=JSON.parse(raw);if(!data.settings||!Array.isArray(data.orders))throw new Error();return data;}
-    return {settings:{slots:Number.isInteger(config.INITIAL_SLOTS)?config.INITIAL_SLOTS:10,price:Number.isInteger(config.INITIAL_PRICE)?config.INITIAL_PRICE:30000,version:0},orders:[]};
-  }catch{throw new Error('Penyimpanan browser tidak dapat dibaca. Gunakan browser biasa dan izinkan penyimpanan situs.');}
-}
-function saveDemo(data){
-  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}
-  catch{throw new Error('Penyimpanan browser penuh atau diblokir. Pesanan belum disimpan dan slot belum berkurang. Kurangi lampiran atau izinkan penyimpanan situs.');}
-}
+
 async function storeAction(name,body={},admin=false){
   if(admin&&config.ADMIN_REQUIRE_LOGIN&&!session)throw new Error('Silakan login demo dahulu.');
-  const db=readDemo();
-  if(name==='settings')return {...db.settings};
+  if(name==='settings'){
+    const res = await fetch('/api/settings');
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Gagal terhubung ke database server.');
+    return data;
+  }
   if(name==='place_order'){
-    const existing=db.orders.find(o=>o.request_key===body.p_key);
-    if(existing)return {id:existing.id,price:existing.price};
-    if(db.settings.slots<1)throw new Error('Maaf, slot sudah habis.');
-    if(body.p_expected_price!==db.settings.price)throw new Error('Harga berubah. Periksa harga terbaru lalu kirim ulang.');
-    const order={id:crypto.randomUUID(),request_key:body.p_key,created_at:new Date().toISOString(),price:db.settings.price,status:'Baru',data:body.p_data,attachments:body.p_attachments};
-    db.orders.unshift(order);db.settings.slots--;db.settings.version++;
-    saveDemo(db);return {id:order.id,price:order.price};
+    const res = await fetch('/api/place_order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Gagal menyimpan pesanan ke database.');
+    return data;
   }
   if(name==='update_settings'){
-    if(!Number.isInteger(body.p_slots)||body.p_slots<0||body.p_slots>999||!Number.isInteger(body.p_price)||body.p_price<1000||body.p_price>10000000||body.p_price%1000)throw new Error('Slot 0–999; harga kelipatan Rp1.000 sampai Rp10.000.000.');
-    if(body.p_version!==db.settings.version)throw new Error('Slot berubah di tab lain. Periksa angka terbaru lalu simpan lagi.');
-    db.settings={slots:body.p_slots,price:body.p_price,version:db.settings.version+1};saveDemo(db);return {...db.settings};
+    const res = await fetch('/api/update_settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Gagal memperbarui slot/harga.');
+    return data;
   }
-  if(name==='list_orders')return db.orders.slice(body.p_offset,body.p_offset+25).map(o=>({id:o.id,name:o.data.name,created_at:o.created_at,price:o.price,status:o.status}));
-  const order=db.orders.find(o=>o.id===body.p_id);
-  if(!order)throw new Error('Pesanan tidak ditemukan di browser ini.');
-  if(name==='order_detail')return order;
+  if(name==='list_orders'){
+    const start = body.p_offset || 0;
+    const res = await fetch('/api/list_orders?offset=' + start);
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Gagal mengambil pesanan dari database.');
+    return data;
+  }
+  if(name==='order_detail'){
+    const res = await fetch('/api/order_detail/' + body.p_id);
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Pesanan tidak ditemukan.');
+    return data;
+  }
   if(name==='order_status'){
-    if(!['Baru','Terkonfirmasi','Selesai'].includes(body.p_status))throw new Error('Status tidak valid.');
-    order.status=body.p_status;saveDemo(db);return;
+    const res = await fetch('/api/order_status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Gagal mengedit status pesanan.');
+    return data;
   }
-  throw new Error('Aksi demo tidak dikenal.');
+  throw new Error('Aksi tidak dikenal.');
 }
+
 function renderStock(){
   $('#slot-count').textContent=state.slots;
   $('#price').textContent=money(state.price);
@@ -156,7 +170,4 @@ $('#detail-dialog').addEventListener('close',()=>{for(const url of objectURLs)UR
 $('#logout').textContent=config.ADMIN_REQUIRE_LOGIN?'Keluar akun':'Tutup admin';
 $('#logout').onclick=()=>{session=null;orders=[];$('#orders').replaceChildren();$('#order-detail').replaceChildren();$('#admin-dialog').close();};
 loadStock();
-// Pembaruan publik tidak menimpa versi pengaturan ketika admin sedang mengedit.
 setInterval(()=>{if(!document.hidden&&!$('#admin-dialog').open)loadStock();},30000);
-
-window.addEventListener('storage',event=>{if(event.key===STORAGE_KEY&&!$('#admin-dialog').open)loadStock();});

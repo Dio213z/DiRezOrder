@@ -1,0 +1,25 @@
+{
+  "name": "direz-portfolio",
+  "version": "1.0.0",
+  "description": "Website DIREZ Portfolio dengan backend Express dan database.json.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dio213z/DiRezOrder.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Dio213z/DiRezOrder/issues"
+  },
+  "homepage": "https://github.com/Dio213z/DiRezOrder#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
